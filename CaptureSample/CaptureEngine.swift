@@ -26,6 +26,7 @@ class AudioCaptureEngine: NSObject, @unchecked Sendable {
     
     private let logger = Logger()
     var audio: AudioRecorder = AudioRecorder(audioSettings: [:])
+    private var microphoneRecorder: AVAudioRecorder?
     
     private var stream: SCStream?
     private let audioSampleBufferQueue = DispatchQueue(label: "com.example.apple-samplecode.AudioSampleBufferQueue")
@@ -39,6 +40,48 @@ class AudioCaptureEngine: NSObject, @unchecked Sendable {
 
     private var startTime = Date()
     
+    private func setupMicrophoneRecorder() {
+        // The settings for the recording: uncompressed audio in .wav format
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsFloatKey: false
+        ]
+
+        let outputFileName = NSUUID().uuidString
+        let filePath = self.append(toPath: self.documentDirectory(),
+                                             withPathComponent: outputFileName)
+        let fileURL = URL(fileURLWithPath: filePath!).appendingPathExtension("WAV")
+        
+        do {
+            microphoneRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
+        } catch {
+            logger.error("Failed to initialize AVAudioRecorder: \(String(describing: error))")
+        }
+    }
+    
+    private func documentDirectory() -> String {
+        let documentDirectory = NSSearchPathForDirectoriesInDomains(.documentDirectory,
+                                                                    .userDomainMask,
+                                                                    true)
+        return documentDirectory[0]
+    }
+    
+    private func append(toPath path: String,
+                        withPathComponent pathComponent: String) -> String? {
+        if var pathURL = URL(string: path) {
+            pathURL.appendPathComponent(pathComponent)
+
+            return pathURL.absoluteString
+        }
+
+        return nil
+    }
+
+    
     func startCapture(configuration: SCStreamConfiguration, filter: SCContentFilter, audio: AudioRecorder) -> AsyncThrowingStream<CapturedFrame, Error> {
         AsyncThrowingStream<CapturedFrame, Error> { continuation in
             // The stream output object.
@@ -48,12 +91,15 @@ class AudioCaptureEngine: NSObject, @unchecked Sendable {
             self.audio = streamOutput.audio!
             self.startTime = Date()
             self.audio.startRecording()
+            
+            self.setupMicrophoneRecorder()
 
             do {
                 stream = SCStream(filter: filter, configuration: configuration, delegate: streamOutput)
 
                 try stream?.addStreamOutput(streamOutput, type: .audio, sampleHandlerQueue: audioSampleBufferQueue)
 
+                self.microphoneRecorder?.record()
                 stream?.startCapture()
             } catch {
                 debugPrint("Error: during start capture!")
@@ -63,6 +109,7 @@ class AudioCaptureEngine: NSObject, @unchecked Sendable {
     
     func stopCapture() async {
         do {
+            self.microphoneRecorder?.stop()
             try await stream?.stopCapture()
             continuation?.finish()
         } catch {

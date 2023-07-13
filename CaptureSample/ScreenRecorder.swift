@@ -10,7 +10,7 @@ import ScreenCaptureKit
 import Combine
 import OSLog
 import SwiftUI
-
+import AVFoundation
 
 
 /// A provider of audio levels from the captured samples.
